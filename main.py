@@ -20,6 +20,12 @@ def main() -> None:
         if not ret:
             break
 
+        # Mirror the frame so it matches the user's real-world sense of
+        # left/right, like a normal camera app. Without this, a swipe to the
+        # user's right moves toward decreasing x in the raw frame, so every
+        # detected direction (and the on-screen preview) would be backwards.
+        frame = cv2.flip(frame, 1)
+
         hand_result = tracker.process(frame)
 
         if hand_result is not None:

@@ -6,6 +6,19 @@ MOVEMENT_THRESHOLD = 120  # pixels the fingertip must travel to count as "far"
 MAX_SWIPE_DURATION = 0.6  # seconds that travel must happen within to count as "fast"
 GESTURE_COOLDOWN = 1.0  # seconds to wait before recognizing another gesture
 
+# NOTE: elapsed vs. required fps, once the history buffer is full.
+# Once the position-history deque is full, `elapsed` (the time between the
+# oldest and newest buffered point) is always exactly `history_size - 1`
+# frame intervals, i.e. elapsed ~= (history_size - 1) / fps. Since a gesture
+# only fires when `elapsed <= max_swipe_duration`, this implicitly requires
+# the camera/processing loop to sustain at least
+# (history_size - 1) / max_swipe_duration frames per second, or no swipe can
+# ever satisfy the "fast enough" check. At the defaults above
+# (HISTORY_SIZE=8, MAX_SWIPE_DURATION=0.6), that's roughly (8 - 1) / 0.6 ~=
+# 11.7 fps minimum. Worth remembering if gestures mysteriously stop firing
+# on a loaded machine - it may just be dropped frame rate, not a detection
+# bug.
+
 
 class SwipeDetector:
     """Classifies index-fingertip motion into swipe gestures.
