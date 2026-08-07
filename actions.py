@@ -52,7 +52,7 @@ def dispatch(gesture: str, controller: Controller | None = None) -> None:
 
     try:
         action(controller)
-    except Exception:
+    except (OSError, RuntimeError):
         if not _warned_permission_error:
             print(
                 "Could not simulate a keypress for gesture "

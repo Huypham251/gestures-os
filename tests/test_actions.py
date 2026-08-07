@@ -70,3 +70,12 @@ def test_dispatch_prints_instructive_message_once_on_failure(capsys):
 
     output = capsys.readouterr().out
     assert output.count("Accessibility") == 1
+
+
+def test_dispatch_raises_attribute_error_when_handler_fails():
+    """Verify that programming errors (e.g., AttributeError) propagate, not caught."""
+    controller = Mock()
+    controller.press.side_effect = AttributeError("boom")
+
+    with pytest.raises(AttributeError):
+        actions.dispatch("SWIPE_LEFT", controller=controller)
