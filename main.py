@@ -1,30 +1,67 @@
+import time
+
 import cv2
-import mediapipe as mp
 
-camera = cv2.VideoCapture(0)
-hands = mp.solutions.hands.Hands()
-mp_draw = mp.solutions.drawing_utils
+import actions
+import gesture_detection
+import hand_tracking
 
-while True:
-    ret, frame = camera.read()
 
-    if not ret:
-        break
+def main() -> None:
+    camera = cv2.VideoCapture(0)
+    tracker = hand_tracking.HandTracker()
+    detector = gesture_detection.SwipeDetector()
 
-    results = hands.process(frame)
+    last_gesture = None
+    last_gesture_time = 0.0
 
-    if results.multi_hand_landmarks:
-        for hand_landmarks in results.multi_hand_landmarks:
-            mp_draw.draw_landmarks(
+    while True:
+        ret, frame = camera.read()
+        if not ret:
+            break
+
+        hand_result = tracker.process(frame)
+
+        if hand_result is not None:
+            tracker.draw(frame, hand_result)
+            cv2.circle(frame, (hand_result.x, hand_result.y), 8, (0, 255, 0), cv2.FILLED)
+            cv2.putText(
                 frame,
-                hand_landmarks,
-                mp.solutions.hands.HAND_CONNECTIONS
+                f"({hand_result.x}, {hand_result.y})",
+                (hand_result.x + 15, hand_result.y - 15),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 0),
+                2,
             )
 
-    cv2.imshow("Camera", frame)
+            gesture = detector.update(hand_result.x, hand_result.y, time.time())
+            if gesture:
+                actions.dispatch(gesture)
+                last_gesture = gesture
+                last_gesture_time = time.time()
+        else:
+            detector.reset()
 
-    if cv2.waitKey(1) == ord("q"):
-        break
+        if last_gesture and time.time() - last_gesture_time < 1.0:
+            cv2.putText(
+                frame,
+                last_gesture,
+                (30, 50),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.2,
+                (0, 0, 255),
+                3,
+            )
 
-camera.release()
-cv2.destroyAllWindows()
+        cv2.imshow("Camera", frame)
+
+        if cv2.waitKey(1) == ord("q"):
+            break
+
+    camera.release()
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
