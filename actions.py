@@ -1,83 +1,66 @@
-from pynput.keyboard import Controller, Key
+import subprocess
 
-try:
-    from ApplicationServices import AXIsProcessTrusted
-except ImportError:  # pragma: no cover - defensive fallback if pyobjc symbol is missing
-    def AXIsProcessTrusted() -> bool:
-        return True
-
-
-def _send_combo(controller: Controller, key) -> None:
-    controller.press(Key.ctrl)
-    controller.press(key)
-    controller.release(key)
-    controller.release(Key.ctrl)
-
-
-def switch_space_left(controller: Controller) -> None:
-    _send_combo(controller, Key.left)
-
-
-def switch_space_right(controller: Controller) -> None:
-    _send_combo(controller, Key.right)
-
-
-def mission_control(controller: Controller) -> None:
-    _send_combo(controller, Key.up)
-
-
-def app_expose(controller: Controller) -> None:
-    _send_combo(controller, Key.down)
-
-
-ACTIONS = {
-    "SWIPE_LEFT": switch_space_left,
-    "SWIPE_RIGHT": switch_space_right,
-    "SWIPE_UP": mission_control,
-    "SWIPE_DOWN": app_expose,
+# macOS virtual keycodes (kVK_*) for the arrow keys.
+_GESTURE_KEYCODES = {
+    "SWIPE_LEFT": 123,   # kVK_LeftArrow  -> move to Space on the left
+    "SWIPE_RIGHT": 124,  # kVK_RightArrow -> move to Space on the right
+    "SWIPE_DOWN": 125,   # kVK_DownArrow  -> App Exposé
+    "SWIPE_UP": 126,     # kVK_UpArrow    -> Mission Control
 }
+
+
+def _send_ctrl_arrow(vk: int) -> None:
+    """Send Ctrl+<arrow> via AppleScript's System Events.
+
+    Plain CGEventPost-based keyboard simulation (e.g. pynput's default
+    backend) does NOT trigger macOS's Mission Control Space-switch handler,
+    even from a process with Accessibility trust - verified empirically:
+    neither pynput's default event construction nor a variant tagging the
+    event with an explicit HID event source switched Spaces, while both a
+    real physical keypress and AppleScript's System Events pathway did.
+    System Events is used here for that reason.
+    """
+    subprocess.run(
+        [
+            "osascript",
+            "-e",
+            f'tell application "System Events" to key code {vk} using {{control down}}',
+        ],
+        check=True,
+        capture_output=True,
+    )
+
 
 _warned_permission_error = False
 
 
 def _warn_permission_error_once(gesture: str) -> None:
-    """Print the instructive Accessibility-permission message, at most once."""
+    """Print the instructive Automation-permission message, at most once."""
     global _warned_permission_error
     if not _warned_permission_error:
         print(
-            "Could not simulate a keypress for gesture "
-            f"'{gesture}'. On macOS this usually means the running "
-            "process needs Accessibility permission: System Settings "
-            "-> Privacy & Security."
+            "Could not send the keypress for gesture "
+            f"'{gesture}' via System Events - check System Settings -> "
+            "Privacy & Security -> Automation and grant this app "
+            "permission to control System Events."
         )
         _warned_permission_error = True
 
 
-def dispatch(gesture: str, controller: Controller | None = None) -> None:
-    """Look up gesture in ACTIONS and simulate the mapped keyboard shortcut.
+def dispatch(gesture: str, key_sender=_send_ctrl_arrow) -> None:
+    """Look up gesture's macOS virtual keycode and send Ctrl+<that key>.
 
-    Unknown gestures are a no-op. On macOS, simulating keypresses requires
-    Accessibility permission for the running process. pynput's CGEventPost
-    backend does NOT raise when that permission is missing - it silently
-    discards the event - so we proactively check AXIsProcessTrusted() before
-    attempting the keypress and skip it entirely if untrusted. The
-    except (OSError, RuntimeError) block remains as a backstop for any other
-    unexpected runtime failure during the actual keypress. Either path
-    reports the instructive message once instead of crashing the caller's
-    loop or being silently retried every frame.
+    Unknown gestures are a no-op. An OS/subprocess-level failure (e.g.
+    missing 'Automation' permission for controlling System Events) is
+    reported once instead of crashing the caller's loop or being silently
+    retried every frame; a programming error in key_sender itself (a bug,
+    not an OS-permission issue) propagates normally.
     """
-    action = ACTIONS.get(gesture)
-    if action is None:
-        return
-
-    if controller is None:
-        controller = Controller()
-
-    if not AXIsProcessTrusted():
-        _warn_permission_error_once(gesture)
+    vk = _GESTURE_KEYCODES.get(gesture)
+    if vk is None:
         return
 
     try:
-        action(controller)
-    except (OSError, RuntimeError):
+        key_sender(vk)
+    except (subprocess.CalledProcessError, OSError):
         _warn_permission_error_once(gesture)

@@ -24,13 +24,15 @@ The app is split into four modules:
 
 2. **`gesture_detection.py`** — `SwipeDetector` classifies index-fingertip motion into swipe gestures. It maintains a rolling `deque(maxlen=HISTORY_SIZE)` of `(x, y, timestamp)` positions and judges each swipe against the oldest point in the buffer (not the previous frame), so single-frame jitter can't flip the detected direction. A gesture only fires if movement is both **far** (euclidean distance > `MOVEMENT_THRESHOLD` px) and **fast** (distance covered within `MAX_SWIPE_DURATION` seconds). Direction is classified from `atan2(dy, dx)` into `SWIPE_LEFT/RIGHT/UP/DOWN`. `GESTURE_COOLDOWN` seconds must elapse between recognized gestures. When hand tracking is lost, the detector's history is cleared.
 
-3. **`actions.py`** — Maps gestures to macOS keyboard shortcuts via `pynput.keyboard.Controller`:
+3. **`actions.py`** — Maps gestures to macOS keyboard shortcuts, sent via AppleScript's System Events (`osascript -e 'tell application "System Events" to key code <vk> using {control down}'`):
    - `SWIPE_LEFT` → switch Space left (Ctrl+Left)
    - `SWIPE_RIGHT` → switch Space right (Ctrl+Right)
    - `SWIPE_UP` → Mission Control (Ctrl+Up)
    - `SWIPE_DOWN` → App Exposé (Ctrl+Down)
-   
-   The `dispatch(gesture)` function looks up the gesture in the `ACTIONS` map and simulates the corresponding keypress. Handles Accessibility permission errors gracefully on macOS.
+
+   **This is AppleScript-based, not `pynput`-based, and that's deliberate**: `pynput`'s `CGEventPost`-based keyboard simulation does NOT trigger macOS's Mission Control Space-switch handler, even from a process with Accessibility trust — verified empirically (neither pynput's default event construction nor one tagging the event with an explicit HID event source worked, while both a real physical keypress and AppleScript's System Events pathway did). Do not revert this to `pynput` without re-verifying live against Mission Control.
+
+   The `dispatch(gesture, key_sender=...)` function looks up the gesture's virtual keycode in `_GESTURE_KEYCODES` and calls `key_sender` (the real `_send_ctrl_arrow` by default; injectable for tests). It requires macOS's **Automation** permission (System Settings → Privacy & Security → Automation) for this app to control System Events — not Accessibility. A failure is reported once via a printed message instead of crashing the caller's loop or being silently retried every frame.
 
 4. **`main.py`** — The main event loop:
    - Captures frames from the webcam and processes them through `HandTracker`, `SwipeDetector`, and `actions` modules in sequence.
